@@ -2,19 +2,28 @@
 from django.http import HttpResponse, JsonResponse
 from django.http import Http404
 from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.models import User
 
 from rest_framework.parsers import JSONParser
 from rest_framework import status
 from rest_framework.decorators import api_view
+from rest_framework.decorators import permission_classes
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework import permissions
+from rest_framework.reverse import reverse
+from rest_framework import renderers
+from rest_framework import mixins
+from rest_framework import generics
 
 
 from snippet.models import Snippet
-from snippet.serializers import SnippetSerializer, SnippetSerializer2
+from snippet.permissions import IsOwnerOrReadOnly
+from snippet.serializers import SnippetSerializer, SnippetSerializer2, UserSerializer
 
 
 @csrf_exempt
+@permission_classes([permissions.IsAuthenticatedOrReadOnly])
 def snippet_list(request):
     """
     List all code snippets, or create a new snippet.
@@ -34,6 +43,7 @@ def snippet_list(request):
     
 
 @csrf_exempt
+@permission_classes([permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly])
 def snippet_detail(request, pk):
     """
     Retrieve, update or delete a code snippet.
@@ -70,8 +80,10 @@ def snippet_detail(request, pk):
 
 # ----------Using @api_view decorator--------
 @api_view(['GET', 'POST'])
+@permission_classes([permissions.IsAuthenticatedOrReadOnly])
 def snippet_list2(request, format=None): # format=None is used to specify the format of the response like JSON or HTML.
-    
+
+
     if request.method == 'GET':
         snippets = Snippet.objects.all()
         serializer = SnippetSerializer2(snippets, many=True)
@@ -86,6 +98,7 @@ def snippet_list2(request, format=None): # format=None is used to specify the fo
     
 
 @api_view(['GET', 'PUT', 'DELETE'])
+@permission_classes([permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly])
 def snippet_detail2(request, pk, format=None): # format=None is used to specify the format of the response like JSON or HTML.
     
     try:
@@ -99,7 +112,7 @@ def snippet_detail2(request, pk, format=None): # format=None is used to specify 
         return Response(serializer.data, status=status.HTTP_200_OK)
     
     elif request.method == 'PUT':
-        serializer = SnippetSerializer2(serializer, data=request.data)
+        serializer = SnippetSerializer2(snippet, data=request.data, partial=True)
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
@@ -125,9 +138,23 @@ class SnippetList(APIView):
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+
+    # Right now, if we created a code snippet, there'd be no way of associating the user that created the snippet, 
+    # with the snippet instance. The user isn't sent as part of the serialized representation, 
+    # but is instead a property of the incoming request.
+    # The way we deal with that is by overriding a .perform_create() method on our snippet views,
+    # that allows us to modify how the instance save is managed, and 
+    # handle any information that is implicit in the incoming request or requested URL.
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
 
 class SnippetDetail(APIView):
+
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
     
     def get_object(self, pk):
         try:
@@ -158,13 +185,22 @@ class SnippetDetail(APIView):
 # Bitch we will now use mixins 😈
 # mixins.ListModelMixin, mixins.CreateModelMixin, mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.DestroyModelMixin, generics.GenericAPIView,
 
-from rest_framework import mixins
-from rest_framework import generics
-
 class SnippetListV2(mixins.ListModelMixin, mixins.CreateModelMixin, generics.GenericAPIView):
 
     queryset = Snippet.objects.all()
     serializer_class = SnippetSerializer2
+
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+
+    # Right now, if we created a code snippet, there'd be no way of associating the user that created the snippet, 
+    # with the snippet instance. The user isn't sent as part of the serialized representation, 
+    # but is instead a property of the incoming request.
+    # The way we deal with that is by overriding a .perform_create() method on our snippet views,
+    # that allows us to modify how the instance save is managed, and 
+    # handle any information that is implicit in the incoming request or requested URL.
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
 
     def get(self, request, *args, **kwargs):
         return self.list(request, *args, **kwargs)
@@ -179,6 +215,9 @@ class SnippetDetailV2(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins
 
     queryset = Snippet.objects.all()
     serializer_class = SnippetSerializer2
+
+    # 
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
 
     def get(self, request, *args, **kwargs):
         return self.retrieve(request, *args, **kwargs)
@@ -197,9 +236,55 @@ class SnippetListV3(generics.ListCreateAPIView):
     queryset = Snippet.objects.all()
     serializer_class = SnippetSerializer2
 
+
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+
+    # Right now, if we created a code snippet, there'd be no way of associating the user that created the snippet, 
+    # with the snippet instance. The user isn't sent as part of the serialized representation, 
+    # but is instead a property of the incoming request.
+    # The way we deal with that is by overriding a .perform_create() method on our snippet views,
+    # that allows us to modify how the instance save is managed, and 
+    # handle any information that is implicit in the incoming request or requested URL.
+    def perform_create(self, serializer):
+        serializer.save(owner=self.request.user)
+
 class SnippetDetailV3(generics.RetrieveUpdateDestroyAPIView):
     queryset = Snippet.objects.all()
     serializer_class = SnippetSerializer2
 
+    # 
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly, IsOwnerOrReadOnly]
 
-# Bitchhhhh thatsss allll......woohoooooooo...............
+
+# ------------------------------------------------------------------------------------------------------------------------
+
+class UserList(generics.ListAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+
+class UserDetail(generics.RetrieveAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    
+
+# ---------------------------------------------------------------------------------------------------------------------------
+
+# 
+@api_view(['GET'])
+def api_root(request, format=None):
+    return Response({
+        'users': reverse('user-list', request=request, format=format),
+        'snippets': reverse('snippet-list-5', request=request, format=format)
+    })
+
+
+class SnippetHighlight(generics.GenericAPIView):
+    queryset = Snippet.objects.all()
+    renderer_classes = [renderers.StaticHTMLRenderer]
+
+    def get(self, request, *args, **kwargs):
+        snippet = self.get_object()
+        return Response(snippet.highlighted)
+    
+    

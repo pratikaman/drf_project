@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from snippet.models import Snippet, LANGUAGE_CHOICES, STYLE_CHOICES
 
+from django.contrib.auth.models import User
+
 
 class SnippetSerializer(serializers.Serializer):
     id = serializers.IntegerField(read_only=True)
@@ -9,6 +11,10 @@ class SnippetSerializer(serializers.Serializer):
     linenos = serializers.BooleanField(required=False)
     language = serializers.ChoiceField(choices=LANGUAGE_CHOICES, default='python')
     style = serializers.ChoiceField(choices=STYLE_CHOICES, default='friendly')
+
+
+    # 
+    owner = serializers.ReadOnlyField(source='owner.username')
 
 
     def create(self, validated_data):
@@ -66,8 +72,45 @@ class SnippetSerializer(serializers.Serializer):
 
 # this is same as SnippetSerializer. this automatically create fields based on the model fields and the methods 'create' and 'update'
 class SnippetSerializer2(serializers.ModelSerializer):
+
+    # It is storing the username of the owner Foreignkey field of Snippet model
+    owner = serializers.ReadOnlyField(source='owner.username')
+
     class Meta:
         model = Snippet
-        fields = "__all__"
+        fields = ['id', 'title', 'code', 'linenos', 'language', 'style', 'owner']
 
+
+
+# For Hyperlinking our API
+class SnippetSerializer3(serializers.HyperlinkedModelSerializer):
+
+    # It is storing the username of the owner Foreignkey field of Snippet model
+    owner = serializers.ReadOnlyField(source='owner.username')
+
+    # 
+    highlight = serializers.HyperlinkedIdentityField(view_name='snippet-highlight', format='html')
+
+    class Meta:
+        model = Snippet
+        fields = ['url', 'id', 'highlight', 'owner' , 'title', 'code', 'linenos', 'language', 'style']
+
+
+
+class UserSerializer(serializers.ModelSerializer):
+    snippets = serializers.PrimaryKeyRelatedField(many=True, queryset=Snippet.objects.all())
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'snippets']
+
+
+
+# Hyperlinking our API
+class UserSerializer2(serializers.HyperlinkedRelatedField):
+    snippets = serializers.HyperlinkedRelatedField(many=True, view_name='snippet-detial', read_only=True)
+
+    class Meta:
+        model = User
+        fields = ['url', 'id', 'username', 'snippets']
 

@@ -22,4 +22,8 @@ urlpatterns = [
     path('api/', include('api.urls')),
     path('products/', include('products.urls')),
     path('snp/', include('snippet.urls')),
+
+
+    # 
+    path('api-auth/', include('rest_framework.urls')),
 ]
